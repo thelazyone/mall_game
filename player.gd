@@ -14,6 +14,9 @@ var path_position
 # Movement speed (units per second along the path)
 @export var movement_speed: float = 5.0
 
+# Rotation offset in radians (allows model to face different direction relative to path)
+@export var rotation_offset: float = 0.0
+
 # Called when the node enters the scene tree for the first time.
 func _ready() -> void:
 	print("Player ready!")
@@ -78,7 +81,9 @@ func update_player_transform() -> void:
 	position.x = pos_2d.x
 	position.z = pos_2d.y  # Map 2D y to 3D z
 	
-	# Update rotation to face movement direction
+	# Update rotation to face the tangent direction of the path
 	if facing_2d.length() > 0:
+		# Calculate angle from the path tangent direction
+		# atan2(x, z) gives us the Y rotation in 3D space
 		var angle = atan2(facing_2d.x, facing_2d.y)
-		rotation.y = angle
+		rotation.y = angle + rotation_offset

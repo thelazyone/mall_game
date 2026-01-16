@@ -1,10 +1,10 @@
-[gd_scene load_steps=6 format=3 uid="uid://dadqckp217qnc"]
+[gd_scene load_steps=7 format=3 uid="uid://dadqckp217qnc"]
 
 [ext_resource type="PackedScene" uid="uid://bxi8ryyiwm3re" path="res://mall.blend" id="1_2s7ec"]
 [ext_resource type="Script" uid="uid://dxciu32mw5sm" path="res://mall.gd" id="1_oih4b"]
 [ext_resource type="Script" uid="uid://craokt1bh2nft" path="res://player.gd" id="2_oih4b"]
 [ext_resource type="Script" uid="uid://dfs7wi3tfu1jv" path="res://geometry.gd" id="3_elnf1"]
-[ext_resource type="Script" path="res://player_camera.gd" id="4_camera"]
+[ext_resource type="Script" uid="uid://c8pybf1xssqll" path="res://player_camera.gd" id="4_camera"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_vhgc6"]
 
@@ -19,6 +19,11 @@ script = ExtResource("2_oih4b")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="Player"]
 mesh = SubResource("BoxMesh_vhgc6")
+
+[node name="MeshInstance3D2" type="MeshInstance3D" parent="Player"]
+transform = Transform3D(0.4685853, 0, 0, 0, 0.57931376, 0, 0, 0, 1.3553994, 0, 0, 0.27032602)
+mesh = SubResource("BoxMesh_vhgc6")
+skeleton = NodePath("../MeshInstance3D")
 
 [node name="Lights" type="Node3D" parent="."]
 
