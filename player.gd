@@ -18,7 +18,7 @@ var path_position
 @export var rotation_offset: float = 0.0
 
 # Jump physics parameters
-@export var jump_impulse: float = 6.0  # Initial upward velocity when jumping
+@export var jump_impulse: float = 9.0  # Initial upward velocity when jumping
 @export var jump_charge_max_time: float = 2.0  # Maximum time the jump button can be held
 @export var jump_charge_multiplier: float = 2.0
 

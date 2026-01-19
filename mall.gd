@@ -9,12 +9,13 @@ var setup_complete: bool = false
 
 # Procedural generation parameters
 var mall_size: int = 10  # Number of segments per side
-var segment_rotation_offset: float = 0.0  # Rotation offset for segments (in degrees)
-var corner_rotation_offset: float = 0.0  # Rotation offset for corners (in degrees)
 
-# Asset references
-var segment_template = null
-var corner_template = null
+# Asset loader configuration
+var mall_assets_file: String = "res://mall_assets.blend"
+var asset_list: Array = ["short_segment", "curve", "stair_slot", "stair_up", "stair_down"] 
+
+# Loaded assets cache (mesh_name -> MeshInstance3D)
+var loaded_assets: Dictionary = {}
 
 # Mesh placement data structure
 class MeshPlacement:
@@ -44,8 +45,13 @@ func _ready() -> void:
 	
 	# Load everything from code for consistent scaling
 	load_mall_scene()
+	
+	# Load and validate all assets
+	if not load_all_assets():
+		push_error("Failed to load required assets! Aborting scene setup.")
+		return
+	
 	load_player_character()
-	load_asset_templates()
 	generate_procedural_mall()
 	
 	# Start the setup polling
@@ -77,27 +83,8 @@ func load_player_character() -> void:
 	# Instantiate the scene
 	var character_instance = character_scene.instantiate()
 	
-	print("Character instance name: ", character_instance.name)
-	print("Character instance scale: ", character_instance.scale)
-	print("Character instance children count: ", character_instance.get_child_count())
-	
-	# Debug: print all children
-	for child in character_instance.get_children():
-		print("  Character child: ", child.name, " Type: ", child.get_class(), " Scale: ", child.scale if child is Node3D else "N/A")
-	
 	# Find the character mesh
-	var character_mesh = null
-	var nodes_to_check = [character_instance]
-	while nodes_to_check.size() > 0:
-		var node = nodes_to_check.pop_back()
-		
-		if node.name.contains("character") and node is MeshInstance3D:
-			character_mesh = node
-			print("Found character mesh: ", node.name, " with scale: ", node.scale)
-		
-		# Add children to check
-		for child in node.get_children():
-			nodes_to_check.append(child)
+	var character_mesh = find_mesh_recursive(character_instance, "character")
 	
 	# Add the character to the player node
 	if character_mesh:
@@ -112,54 +99,70 @@ func load_player_character() -> void:
 	
 	print("Player character loaded")
 
-func load_asset_templates() -> void:
-	"""Load the asset templates from mall_assets.blend"""
-	print("Loading asset templates...")
+func load_all_assets() -> bool:
+	"""Load and validate all required assets from mall_assets.blend"""
+	print("Loading assets from: ", mall_assets_file)
 	
-	# Load the mall_assets scene
-	var mall_assets = load("res://mall_assets.blend")
-	if not mall_assets:
-		push_error("Failed to load mall_assets.blend!")
-		return
+	# Load the mall_assets scene file
+	var scene = load(mall_assets_file)
+	if not scene:
+		push_error("Failed to load file: %s" % mall_assets_file)
+		return false
 	
-	# Instantiate the scene to access its children
-	var assets_instance = mall_assets.instantiate()
+	# Instantiate to access meshes
+	var scene_instance = scene.instantiate()
 	
-	print("Assets instance name: ", assets_instance.name)
-	print("Assets instance scale: ", assets_instance.scale)
-	
-	# Search recursively for the meshes
-	var nodes_to_check = [assets_instance]
-	while nodes_to_check.size() > 0:
-		var node = nodes_to_check.pop_back()
+	# Load each mesh from the asset list
+	for mesh_name in asset_list:
+		print("  Looking for mesh: '%s'" % mesh_name)
 		
-		if node.name.contains("curve") and node is MeshInstance3D:
-			corner_template = node.duplicate()
-			print("Found corner template: ", node.name, " with scale: ", corner_template.scale)
-		elif node.name.contains("short_segment") and node is MeshInstance3D:
-			segment_template = node.duplicate()
-			print("Found segment template: ", node.name, " with scale: ", segment_template.scale)
+		# Search for the mesh
+		var found_mesh = find_mesh_recursive(scene_instance, mesh_name)
 		
-		# Add children to check
-		for child in node.get_children():
-			nodes_to_check.append(child)
+		if found_mesh:
+			# Store the duplicated mesh node
+			loaded_assets[mesh_name] = found_mesh.duplicate()
+			print("    ✓ Loaded '%s' successfully (scale: %s)" % [mesh_name, loaded_assets[mesh_name].scale])
+		else:
+			push_error("    ✗ Mesh '%s' not found in '%s'" % [mesh_name, mall_assets_file])
+			scene_instance.queue_free()
+			return false
 	
-	# Clean up the temporary instance
-	assets_instance.queue_free()
+	# Clean up temporary instance
+	scene_instance.queue_free()
 	
-	if not segment_template:
-		push_error("short_segment mesh not found in mall_assets!")
-	if not corner_template:
-		push_error("curve mesh not found in mall_assets!")
+	print("All assets loaded successfully!")
+	return true
+
+func find_mesh_recursive(node: Node, mesh_name: String) -> MeshInstance3D:
+	"""Recursively search for a mesh by name"""
+	if node.name.contains(mesh_name) and node is MeshInstance3D:
+		return node
 	
-	print("Asset templates loaded successfully")
+	for child in node.get_children():
+		var result = find_mesh_recursive(child, mesh_name)
+		if result:
+			return result
+	
+	return null
+
+func get_asset(asset_name: String) -> MeshInstance3D:
+	"""Get a loaded asset by name, returns null and logs error if not found"""
+	if loaded_assets.has(asset_name):
+		return loaded_assets[asset_name]
+	else:
+		push_error("Asset '%s' not found! Available assets: %s" % [asset_name, loaded_assets.keys()])
+		return null
 
 func generate_procedural_mall() -> void:
 	"""Generate a procedural mall based on mall_size parameter"""
 	print("Generating procedural mall with size: ", mall_size)
 	
+	var segment_template = get_asset("short_segment")
+	var corner_template = get_asset("curve")
+	
 	if not segment_template or not corner_template:
-		push_error("Asset templates not loaded!")
+		push_error("Required assets not available!")
 		return
 	
 	# Step 1: Generate the simple abstract geometry (4 corners for a rectangle)
@@ -233,13 +236,13 @@ func generate_procedural_mall() -> void:
 		if placement.type == "corner":
 			var corner = corner_template.duplicate()
 			corner.position = placement.position
-			corner.rotation_degrees.y = corner_rotation_offset + angle_degrees
+			corner.rotation_degrees.y = angle_degrees
 			add_child(corner)
 			print("Added corner at ", placement.position, " with rotation ", angle_degrees)
 		elif placement.type == "segment":
 			var segment = segment_template.duplicate()
 			segment.position = placement.position
-			segment.rotation_degrees.y = segment_rotation_offset + angle_degrees
+			segment.rotation_degrees.y = angle_degrees
 			add_child(segment)
 			print("Added segment at ", placement.position, " with rotation ", angle_degrees)
 	
