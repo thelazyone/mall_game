@@ -1,12 +1,9 @@
-[gd_scene load_steps=7 format=3 uid="uid://dadqckp217qnc"]
+[gd_scene load_steps=5 format=3 uid="uid://dadqckp217qnc"]
 
-[ext_resource type="PackedScene" uid="uid://bxi8ryyiwm3re" path="res://mall.blend" id="1_2s7ec"]
 [ext_resource type="Script" uid="uid://dxciu32mw5sm" path="res://mall.gd" id="1_oih4b"]
 [ext_resource type="Script" uid="uid://craokt1bh2nft" path="res://player.gd" id="2_oih4b"]
 [ext_resource type="Script" uid="uid://dfs7wi3tfu1jv" path="res://geometry.gd" id="3_elnf1"]
 [ext_resource type="Script" uid="uid://c8pybf1xssqll" path="res://player_camera.gd" id="4_camera"]
-
-[sub_resource type="BoxMesh" id="BoxMesh_vhgc6"]
 
 [node name="Mall" type="Node3D"]
 script = ExtResource("1_oih4b")
@@ -17,19 +14,8 @@ script = ExtResource("4_camera")
 [node name="Player" type="Node3D" parent="."]
 script = ExtResource("2_oih4b")
 
-[node name="MeshInstance3D" type="MeshInstance3D" parent="Player"]
-transform = Transform3D(0.28916872, 0, 0, 0, 0.28916872, 0, 0, 0, 0.28916872, 0, 0, 0)
-mesh = SubResource("BoxMesh_vhgc6")
-
-[node name="MeshInstance3D2" type="MeshInstance3D" parent="Player"]
-transform = Transform3D(0.119461045, 0, 0, 0, 0.18278068, 0, 0, 0, 0.13188508, 0, 0, 0.12780249)
-mesh = SubResource("BoxMesh_vhgc6")
-skeleton = NodePath("../MeshInstance3D")
-
 [node name="Lights" type="Node3D" parent="."]
 
 [node name="Geometry" type="Node" parent="."]
 unique_name_in_owner = true
 script = ExtResource("3_elnf1")
-
-[node name="mall" parent="." instance=ExtResource("1_2s7ec")]
