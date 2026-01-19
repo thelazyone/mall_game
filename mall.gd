@@ -10,6 +10,9 @@ var setup_complete: bool = false
 # Procedural generation parameters
 var mall_size: int = 10  # Number of segments per side
 
+# Debug flag
+var debug_stairs: bool = true  # Toggle stair generation debug output
+
 # Asset loader configuration
 var mall_assets_file: String = "res://mall_assets.blend"
 var asset_list: Array = ["short_segment", "curve", "stair_slot", "stair_up", "stair_down"] 
@@ -17,10 +20,30 @@ var asset_list: Array = ["short_segment", "curve", "stair_slot", "stair_up", "st
 # Loaded assets cache (mesh_name -> MeshInstance3D)
 var loaded_assets: Dictionary = {}
 
+# Stair data structure
+class StairInfo:
+	var floor: int  # Which floor this stair starts on
+	var side: int   # Which side (0=bottom, 1=right, 2=top, 3=left)
+	var segment_pos: int  # Position within that side (in segments)
+	var direction_forward: bool  # True = forward along path, False = backward
+	
+	func _init(f: int, s: int, pos: int, dir_fwd: bool):
+		floor = f
+		side = s
+		segment_pos = pos
+		direction_forward = dir_fwd
+	
+	func output_to_string() -> String:
+		var side_name = ["Bottom", "Right", "Top", "Left"][side]
+		var dir_name = "Forward" if direction_forward else "Backward"
+		var arrival_pos = segment_pos + (4 if direction_forward else -4)
+		return "Floor %d | Side: %s | Departure seg: %d | Arrival seg: %d | Direction: %s" % [floor, side_name, segment_pos, arrival_pos, dir_name]
+
 # Mesh placement data structure
 class MeshPlacement:
-	var type: String  # "corner" or "segment"
+	var type: String  # "corner", "segment", "stair_departure", or "stair_arrival"
 	var position: Vector3
+	var stair_direction_forward: bool = true  # Only used for stairs
 	
 	func _init(t: String, pos: Vector3):
 		type = t
@@ -154,14 +177,107 @@ func get_asset(asset_name: String) -> MeshInstance3D:
 		push_error("Asset '%s' not found! Available assets: %s" % [asset_name, loaded_assets.keys()])
 		return null
 
+func generate_stair_data(num_floors: int) -> Array:
+	"""Generate all stair data for the mall structure"""
+	var all_stairs = []  # Array of StairInfo objects
+	
+	# Seed randomizer
+	randomize()
+	
+	# Track which sides have stairs and their directions (for consistency between floors)
+	# Format: side_idx -> direction_forward
+	var previous_floor_side_directions = {}
+	
+	# Fixed positions for stairs (in segment units, not world units)
+	var forward_departure_segment = (mall_size / 2) - 3  # center-minus-six for forward
+	if forward_departure_segment < 0:
+		forward_departure_segment = 0
+	forward_departure_segment = (forward_departure_segment / 2) * 2  # Ensure even
+	
+	var backward_departure_segment = (mall_size / 2) + 1  # center-plus-two for backward
+	backward_departure_segment = (backward_departure_segment / 2) * 2  # Ensure even
+	
+	# For each floor except the top, generate two stairs going up
+	for floor_idx in range(num_floors - 1):
+		# Pick two different random sides
+		var available_sides = [0, 1, 2, 3]
+		available_sides.shuffle()
+		var side1 = available_sides[0]
+		var side2 = available_sides[1]
+		
+		var current_floor_side_directions = {}
+		
+		# Create stairs for both sides
+		for side_idx in [side1, side2]:
+			var direction_forward: bool
+			
+			# Check if this side had a stair on the floor below
+			if previous_floor_side_directions.has(side_idx):
+				# Keep same direction for consistency
+				direction_forward = previous_floor_side_directions[side_idx]
+			else:
+				# New side, pick random direction
+				direction_forward = randf() > 0.5
+			
+			# Choose segment position based on direction
+			var segment_pos = forward_departure_segment if direction_forward else backward_departure_segment
+			
+			# Create the stair
+			var stair = StairInfo.new(floor_idx, side_idx, segment_pos, direction_forward)
+			all_stairs.append(stair)
+			
+			# Track this side's direction for next floor
+			current_floor_side_directions[side_idx] = direction_forward
+		
+		# Update for next iteration
+		previous_floor_side_directions = current_floor_side_directions
+	
+	return all_stairs
+
+func print_stair_data(stairs: Array) -> void:
+	"""Print all stair data in a readable format"""
+	if not debug_stairs:
+		return
+	
+	print("\n========== STAIR GENERATION DATA ==========")
+	print("Total stairs: ", stairs.size())
+	print("Mall size (segments per side): ", mall_size)
+	print("\nForward direction:")
+	print("  Departure segment position: ", (mall_size / 2) - 3)
+	print("  Arrival segment position: ", ((mall_size / 2) - 3) + 4, " = ", (mall_size / 2) + 1)
+	print("\nBackward direction:")
+	print("  Departure segment position: ", (mall_size / 2) + 1)
+	print("  Arrival segment position: ", ((mall_size / 2) + 1) - 4, " = ", (mall_size / 2) - 3)
+	print("\n-------------------------------------------")
+	
+	# Group by floor
+	var floors = {}
+	for stair in stairs:
+		if not floors.has(stair.floor):
+			floors[stair.floor] = []
+		floors[stair.floor].append(stair)
+	
+	# Print each floor
+	var floor_keys = floors.keys()
+	floor_keys.sort()
+	for floor_idx in floor_keys:
+		print("\n--- Floor ", floor_idx, " (connects to floor ", floor_idx + 1, ") ---")
+		for stair in floors[floor_idx]:
+			print("  ", stair.output_to_string())
+	
+	print("\n===========================================\n")
+
 func generate_procedural_mall() -> void:
 	"""Generate a procedural mall based on mall_size parameter"""
 	print("Generating procedural mall with size: ", mall_size)
 	
 	var segment_template = get_asset("short_segment")
 	var corner_template = get_asset("curve")
+	var stair_slot_template = get_asset("stair_slot")
+	var stair_up_template = get_asset("stair_up")
+	var stair_down_template = get_asset("stair_down")
 	
-	if not segment_template or not corner_template:
+	if not segment_template or not corner_template or not stair_slot_template or not stair_up_template or not stair_down_template:
 		push_error("Required assets not available!")
 		return
 	
@@ -183,70 +299,249 @@ func generate_procedural_mall() -> void:
 	else:
 		push_error("Geometry node not found or doesn't have define_path method!")
 	
-	# Step 2: Generate detailed mesh placement list
-	var mesh_placements: Array = []
+	# Step 2: Generate 5 floors (2 below, current, 2 above) - floors are 4 tall
+	var floor_heights = [-8, -4, 0, 4, 8]
+	var num_floors = floor_heights.size()
 	
-	# Bottom side (left to right): corner, segments, corner
-	var x = -half_side
-	var z = -half_side
-	mesh_placements.append(MeshPlacement.new("corner", Vector3(x, 0, z)))
-	x += 4  # Corner is 4 wide
-	for i in range(mall_size):
-		mesh_placements.append(MeshPlacement.new("segment", Vector3(x, 0, z)))
-		x += 2  # Segment is 2 wide
+	# Step 3: Generate stair data
+	var all_stairs = generate_stair_data(num_floors)
+	print_stair_data(all_stairs)
 	
-	# Right side (bottom to top): corner, segments, corner
-	x = half_side
-	z = -half_side
-	mesh_placements.append(MeshPlacement.new("corner", Vector3(x, 0, z)))
-	z += 4  # Corner is 4 wide
-	for i in range(mall_size):
-		mesh_placements.append(MeshPlacement.new("segment", Vector3(x, 0, z)))
-		z += 2  # Segment is 2 wide
+	# Convert stair data to lookup tables for easier access during mesh generation
+	# departure_stairs[floor][side] = StairInfo
+	var departure_stairs_lookup = {}
+	for floor_idx in range(num_floors):
+		departure_stairs_lookup[floor_idx] = {}
 	
-	# Top side (right to left): corner, segments, corner
-	x = half_side
-	z = half_side
-	mesh_placements.append(MeshPlacement.new("corner", Vector3(x, 0, z)))
-	x -= 4  # Corner is 4 wide
-	for i in range(mall_size):
-		mesh_placements.append(MeshPlacement.new("segment", Vector3(x, 0, z)))
-		x -= 2  # Segment is 2 wide
+	for stair in all_stairs:
+		departure_stairs_lookup[stair.floor][stair.side] = stair
 	
-	# Left side (top to bottom): corner, segments (last corner wraps to start)
-	x = -half_side
-	z = half_side
-	mesh_placements.append(MeshPlacement.new("corner", Vector3(x, 0, z)))
-	z -= 4  # Corner is 4 wide
-	for i in range(mall_size):
-		mesh_placements.append(MeshPlacement.new("segment", Vector3(x, 0, z)))
-		z -= 2  # Segment is 2 wide
+	# arrival_stairs[floor][side] = StairInfo (from floor below)
+	var arrival_stairs_lookup = {}
+	for floor_idx in range(num_floors):
+		arrival_stairs_lookup[floor_idx] = {}
 	
-	# Step 3: Instantiate meshes with calculated rotations
-	for i in range(mesh_placements.size()):
-		var placement = mesh_placements[i]
-		var next_placement = mesh_placements[(i + 1) % mesh_placements.size()]
+	for stair in all_stairs:
+		var arrival_floor = stair.floor + 1
+		if arrival_floor < num_floors:
+			arrival_stairs_lookup[arrival_floor][stair.side] = stair
+	
+	# Step 4: Generate mesh placements for each floor
+	for floor_idx in range(num_floors):
+		var floor_y = floor_heights[floor_idx]
+		var mesh_placements: Array = []
 		
-		# Calculate direction to next placement
-		var direction = (next_placement.position - placement.position).normalized()
-		var angle = -atan2(direction.z, direction.x)
-		var angle_degrees = rad_to_deg(angle)
+		# Get stair info for this floor
+		var departure_stairs = departure_stairs_lookup[floor_idx]  # side -> StairInfo
+		var arrival_stairs = arrival_stairs_lookup[floor_idx]  # side -> StairInfo
 		
-		# Instantiate the appropriate mesh
-		if placement.type == "corner":
-			var corner = corner_template.duplicate()
-			corner.position = placement.position
-			corner.rotation_degrees.y = angle_degrees
-			add_child(corner)
-			print("Added corner at ", placement.position, " with rotation ", angle_degrees)
-		elif placement.type == "segment":
-			var segment = segment_template.duplicate()
-			segment.position = placement.position
-			segment.rotation_degrees.y = angle_degrees
-			add_child(segment)
-			print("Added segment at ", placement.position, " with rotation ", angle_degrees)
+		# Bottom side (0): left to right
+		var x = -half_side
+		var z = -half_side
+		mesh_placements.append(MeshPlacement.new("corner", Vector3(x, floor_y, z)))
+		x += 4  # Corner is 4 wide
+		var i = 0
+		while i < mall_size:
+			var placed = false
+			
+			# Check for departure stair (going up from this floor)
+			if departure_stairs.has(0):
+				var stair_info = departure_stairs[0]
+				if i == stair_info.segment_pos:
+					var stair_departure = MeshPlacement.new("stair_departure", Vector3(x, floor_y, z))
+					stair_departure.stair_direction_forward = stair_info.direction_forward
+					mesh_placements.append(stair_departure)
+					x += 4
+					i += 2
+					placed = true
+			
+			# Check for arrival stair (coming down from floor below)
+			if not placed and arrival_stairs.has(0):
+				var stair_info = arrival_stairs[0]
+				# Arrival is +4 segments if forward, -4 segments if backward
+				var arrival_pos = stair_info.segment_pos + (4 if stair_info.direction_forward else -4)
+				if i == arrival_pos:
+					var stair_arrival = MeshPlacement.new("stair_arrival", Vector3(x, floor_y, z))
+					stair_arrival.stair_direction_forward = stair_info.direction_forward
+					mesh_placements.append(stair_arrival)
+					x += 4
+					i += 2
+					placed = true
+			
+			if not placed:
+				mesh_placements.append(MeshPlacement.new("segment", Vector3(x - 1, floor_y, z)))
+				x += 2
+				i += 1
+		
+		# Right side (1): bottom to top
+		x = half_side
+		z = -half_side
+		mesh_placements.append(MeshPlacement.new("corner", Vector3(x, floor_y, z)))
+		z += 4  # Corner is 4 wide
+		i = 0
+		while i < mall_size:
+			var placed = false
+			
+			if departure_stairs.has(1):
+				var stair_info = departure_stairs[1]
+				if i == stair_info.segment_pos:
+					var stair_departure = MeshPlacement.new("stair_departure", Vector3(x, floor_y, z))
+					stair_departure.stair_direction_forward = stair_info.direction_forward
+					mesh_placements.append(stair_departure)
+					z += 4
+					i += 2
+					placed = true
+			
+			if not placed and arrival_stairs.has(1):
+				var stair_info = arrival_stairs[1]
+				var arrival_pos = stair_info.segment_pos + (4 if stair_info.direction_forward else -4)
+				if i == arrival_pos:
+					var stair_arrival = MeshPlacement.new("stair_arrival", Vector3(x, floor_y, z))
+					stair_arrival.stair_direction_forward = stair_info.direction_forward
+					mesh_placements.append(stair_arrival)
+					z += 4
+					i += 2
+					placed = true
+			
+			if not placed:
+				mesh_placements.append(MeshPlacement.new("segment", Vector3(x, floor_y, z - 1)))
+				z += 2
+				i += 1
+		
+		# Top side (2): right to left
+		x = half_side
+		z = half_side
+		mesh_placements.append(MeshPlacement.new("corner", Vector3(x, floor_y, z)))
+		x -= 4  # Corner is 4 wide
+		i = 0
+		while i < mall_size:
+			var placed = false
+			
+			if departure_stairs.has(2):
+				var stair_info = departure_stairs[2]
+				if i == stair_info.segment_pos:
+					var stair_departure = MeshPlacement.new("stair_departure", Vector3(x, floor_y, z))
+					stair_departure.stair_direction_forward = stair_info.direction_forward
+					mesh_placements.append(stair_departure)
+					x -= 4
+					i += 2
+					placed = true
+			
+			if not placed and arrival_stairs.has(2):
+				var stair_info = arrival_stairs[2]
+				var arrival_pos = stair_info.segment_pos + (4 if stair_info.direction_forward else -4)
+				if i == arrival_pos:
+					var stair_arrival = MeshPlacement.new("stair_arrival", Vector3(x, floor_y, z))
+					stair_arrival.stair_direction_forward = stair_info.direction_forward
+					mesh_placements.append(stair_arrival)
+					x -= 4
+					i += 2
+					placed = true
+			
+			if not placed:
+				mesh_placements.append(MeshPlacement.new("segment", Vector3(x + 1, floor_y, z)))
+				x -= 2
+				i += 1
+		
+		# Left side (3): top to bottom
+		x = -half_side
+		z = half_side
+		mesh_placements.append(MeshPlacement.new("corner", Vector3(x, floor_y, z)))
+		z -= 4  # Corner is 4 wide
+		i = 0
+		while i < mall_size:
+			var placed = false
+			
+			if departure_stairs.has(3):
+				var stair_info = departure_stairs[3]
+				if i == stair_info.segment_pos:
+					var stair_departure = MeshPlacement.new("stair_departure", Vector3(x, floor_y, z))
+					stair_departure.stair_direction_forward = stair_info.direction_forward
+					mesh_placements.append(stair_departure)
+					z -= 4
+					i += 2
+					placed = true
+			
+			if not placed and arrival_stairs.has(3):
+				var stair_info = arrival_stairs[3]
+				var arrival_pos = stair_info.segment_pos + (4 if stair_info.direction_forward else -4)
+				if i == arrival_pos:
+					var stair_arrival = MeshPlacement.new("stair_arrival", Vector3(x, floor_y, z))
+					stair_arrival.stair_direction_forward = stair_info.direction_forward
+					mesh_placements.append(stair_arrival)
+					z -= 4
+					i += 2
+					placed = true
+			
+			if not placed:
+				mesh_placements.append(MeshPlacement.new("segment", Vector3(x, floor_y, z + 1)))
+				z -= 2
+				i += 1
+		
+		# Step 5: Instantiate meshes with calculated rotations
+		for j in range(mesh_placements.size()):
+			var placement = mesh_placements[j]
+			var next_placement = mesh_placements[(j + 1) % mesh_placements.size()]
+			
+			# Calculate direction to next placement
+			var direction = (next_placement.position - placement.position).normalized()
+			var angle = -atan2(direction.z, direction.x)
+			var angle_degrees = rad_to_deg(angle)
+			
+			# Instantiate the appropriate mesh
+			if placement.type == "corner":
+				var corner = corner_template.duplicate()
+				corner.position = placement.position
+				corner.rotation_degrees.y = angle_degrees
+				add_child(corner)
+			elif placement.type == "segment":
+				var segment = segment_template.duplicate()
+				segment.position = placement.position
+				segment.rotation_degrees.y = angle_degrees
+				add_child(segment)
+			elif placement.type == "stair_departure":
+				# Departure stair (going up from this floor)
+				# direction_forward=true: stair goes forward (right) - stair_up normal
+				# direction_forward=false: stair goes backward (left) - stair_up x-flipped
+				
+				var dir_forward = placement.stair_direction_forward
+				
+				# Place stair_slot
+				var stair_slot = stair_slot_template.duplicate()
+				stair_slot.position = placement.position
+				stair_slot.rotation_degrees.y = angle_degrees
+				add_child(stair_slot)
+				
+				# Place stair_up (on top of slot)
+				var stair_up = stair_up_template.duplicate()
+				stair_up.position = placement.position
+				stair_up.rotation_degrees.y = angle_degrees
+				if not dir_forward:
+					stair_up.scale.x = -1  # Flip to face backward
+				add_child(stair_up)
+				
+			elif placement.type == "stair_arrival":
+				# Arrival stair (coming down to this floor from above)
+				# direction_forward=true: stair came forward (right) - stair_down x-flipped
+				# direction_forward=false: stair came backward (left) - stair_down normal
+				
+				var dir_forward = placement.stair_direction_forward
+				
+				# Place stair_slot
+				var stair_slot = stair_slot_template.duplicate()
+				stair_slot.position = placement.position
+				stair_slot.rotation_degrees.y = angle_degrees
+				add_child(stair_slot)
+				
+				# Place stair_down (on top of slot)
+				var stair_down = stair_down_template.duplicate()
+				stair_down.position = placement.position
+				stair_down.rotation_degrees.y = angle_degrees
+				if dir_forward:
+					stair_down.scale.x = -1  # Flip to face backward (opposite of up)
+				add_child(stair_down)
 	
-	print("Procedural mall generation complete! Generated ", mesh_placements.size(), " mesh placements")
+	print("Procedural mall generation complete with ", num_floors, " floors!")
 
 func setup_scene() -> void:
 	"""Poll until geometry is ready, then initialize player"""
