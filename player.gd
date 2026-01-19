@@ -19,13 +19,17 @@ var path_position
 
 # Jump physics parameters
 @export var jump_impulse: float = 6.0  # Initial upward velocity when jumping
-@export var jump_charge_time: float = 2.0  # Initial upward velocity when jumping
+@export var jump_charge_max_time: float = 2.0  # Maximum time the jump button can be held
+@export var jump_charge_multiplier: float = 2.0
+
 @export var gravity: float = 30.0  # Downward acceleration
 @export var ground_level: float = 0.0  # Y position of the ground
 
 # Jump state
 var vertical_velocity: float = 0.0
 var is_on_ground: bool = true
+var jump_press_time: float = 0.0  # Timestamp when jump button was pressed
+var is_charging_jump: bool = false
 
 # Facing direction: 1 for forward along path, -1 for backward
 var facing_direction: float = 1.0
@@ -66,10 +70,11 @@ func initialize_position() -> void:
 	
 	update_player_transform()
 	
-	# Initialize vertical position
+	# Initialize vertical position and jump state
 	position.y = ground_level
 	vertical_velocity = 0.0
 	is_on_ground = true
+	is_charging_jump = false
 	
 	print("Player position initialized at distance: ", path_position.distance)
 	print("Player world position: ", position)
@@ -96,10 +101,28 @@ func _process(delta: float) -> void:
 		geometry.translate(path_position, distance_delta)
 		update_player_transform()
 	
-	# Handle jump input
-	if Input.is_action_just_pressed("jump") and is_on_ground:  # Spacebar
-		vertical_velocity = jump_impulse
-		is_on_ground = false
+	# Handle jump charging
+	if is_on_ground:
+		if Input.is_action_just_pressed("jump"):
+			# Start charging the jump - record the timestamp
+			is_charging_jump = true
+			jump_press_time = Time.get_ticks_msec() / 1000.0  # Convert to seconds
+		
+		if is_charging_jump and Input.is_action_just_released("jump"):
+			# Calculate the charge time
+			var jump_release_time = Time.get_ticks_msec() / 1000.0
+			var charge_time = jump_release_time - jump_press_time
+			
+			# Calculate jump impulse based on charge time
+			# impulse = base_impulse * (1 + min(time/max_time, 1) * multiplier)
+			var charge_ratio = min(charge_time / jump_charge_max_time, 1.0)	
+			var calculated_impulse = jump_impulse * (1.0 + charge_ratio * (jump_charge_multiplier - 1))
+			
+			print("Jump charged for ", charge_time, "s, impulse: ", calculated_impulse)
+			
+			vertical_velocity = calculated_impulse
+			is_on_ground = false
+			is_charging_jump = false
 	
 	# Apply gravity and update vertical position
 	if not is_on_ground:
@@ -111,6 +134,7 @@ func _process(delta: float) -> void:
 			position.y = ground_level
 			vertical_velocity = 0.0
 			is_on_ground = true
+			is_charging_jump = false
 
 
 # Update the player's 3D position and rotation based on path position
