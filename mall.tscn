@@ -18,10 +18,11 @@ script = ExtResource("4_camera")
 script = ExtResource("2_oih4b")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="Player"]
+transform = Transform3D(0.28916872, 0, 0, 0, 0.28916872, 0, 0, 0, 0.28916872, 0, 0, 0)
 mesh = SubResource("BoxMesh_vhgc6")
 
 [node name="MeshInstance3D2" type="MeshInstance3D" parent="Player"]
-transform = Transform3D(0.4685853, 0, 0, 0, 0.57931376, 0, 0, 0, 1.3553994, 0, 0, 0.27032602)
+transform = Transform3D(0.119461045, 0, 0, 0, 0.18278068, 0, 0, 0, 0.13188508, 0, 0, 0.12780249)
 mesh = SubResource("BoxMesh_vhgc6")
 skeleton = NodePath("../MeshInstance3D")
 

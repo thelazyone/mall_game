@@ -17,6 +17,19 @@ var path_position
 # Rotation offset in radians (allows model to face different direction relative to path)
 @export var rotation_offset: float = 0.0
 
+# Jump physics parameters
+@export var jump_impulse: float = 6.0  # Initial upward velocity when jumping
+@export var jump_charge_time: float = 2.0  # Initial upward velocity when jumping
+@export var gravity: float = 30.0  # Downward acceleration
+@export var ground_level: float = 0.0  # Y position of the ground
+
+# Jump state
+var vertical_velocity: float = 0.0
+var is_on_ground: bool = true
+
+# Facing direction: 1 for forward along path, -1 for backward
+var facing_direction: float = 1.0
+
 # Called when the node enters the scene tree for the first time.
 func _ready() -> void:
 	print("Player ready!")
@@ -47,28 +60,57 @@ func initialize_position() -> void:
 		return
 	
 	path_position = geometry.create_position(0.0)
+	
+	# Initialize facing direction
+	facing_direction = 1.0
+	
 	update_player_transform()
+	
+	# Initialize vertical position
+	position.y = ground_level
+	vertical_velocity = 0.0
+	is_on_ground = true
+	
 	print("Player position initialized at distance: ", path_position.distance)
 	print("Player world position: ", position)
 
 
 func _process(delta: float) -> void:
-
+	# Handle horizontal movement along the path
 	var movement_input = 0.0	
 	
 	# Checking if the move_left and move_right buttons are pressed right now.
 	if Input.is_action_pressed("move_left"):
-		movement_input += 1.0
-	if Input.is_action_pressed("move_right"):
 		movement_input -= 1.0
-
-
+	if Input.is_action_pressed("move_right"):
+		movement_input += 1.0
 
 	if movement_input != 0.0:
+		# Update facing direction based on movement
+		if movement_input > 0:
+			facing_direction = 1.0  # Moving forward along path (left)
+		else:
+			facing_direction = -1.0  # Moving backward along path (right)
+		
 		var distance_delta = movement_input * movement_speed * delta
 		geometry.translate(path_position, distance_delta)
 		update_player_transform()
-		print("New position: ", position)
+	
+	# Handle jump input
+	if Input.is_action_just_pressed("jump") and is_on_ground:  # Spacebar
+		vertical_velocity = jump_impulse
+		is_on_ground = false
+	
+	# Apply gravity and update vertical position
+	if not is_on_ground:
+		vertical_velocity -= gravity * delta
+		position.y += vertical_velocity * delta
+		
+		# Check if we've landed
+		if position.y <= ground_level:
+			position.y = ground_level
+			vertical_velocity = 0.0
+			is_on_ground = true
 
 
 # Update the player's 3D position and rotation based on path position
@@ -77,13 +119,19 @@ func update_player_transform() -> void:
 	var pos_2d = geometry.get_position(path_position)
 	var facing_2d = geometry.get_facing(path_position)
 	
-	# Update 3D position (keeping y coordinate)
+	# Update 3D position in XZ plane (preserve Y for jump physics)
 	position.x = pos_2d.x
 	position.z = pos_2d.y  # Map 2D y to 3D z
+	# Note: position.y is NOT updated here - it's controlled by jump physics
 	
 	# Update rotation to face the tangent direction of the path
 	if facing_2d.length() > 0:
 		# Calculate angle from the path tangent direction
 		# atan2(x, z) gives us the Y rotation in 3D space
 		var angle = atan2(facing_2d.x, facing_2d.y)
+		
+		# Apply facing direction (flip 180° if moving backward)
+		if facing_direction < 0:
+			angle += PI
+		
 		rotation.y = angle + rotation_offset

@@ -14,7 +14,7 @@ var total_path_length: float = 0.0
 var is_path_defined: bool = false
 
 # Visual smoothing parameter
-@export var curve_radius: float = 0.5  # Radius for visual corner smoothing
+@export var curve_radius: float = 0.5  # Radius for visual corner smomoothing
 
 # Called when the node enters the scene tree
 func _ready() -> void:
@@ -22,7 +22,7 @@ func _ready() -> void:
 	
 	# Define a test path - replace this with your actual path!
 	# This creates a square path for testing
-	var mall_size = 3
+	var mall_size = 5
 	define_path([
 		Vector2(-mall_size, -mall_size),
 		Vector2(mall_size, -mall_size),
