@@ -12,9 +12,9 @@ var geometry
 var path_position
 
 # Movement speed (units per second along the path)
-@export var movement_speed: float = 5.0
+@export var movement_speed: float = 12.0
 
-# Rotation offset in radians (allows model to face different direction relative to path)
+# Rotation offsets
 @export var rotation_offset: float = 0.0
 
 # Jump physics parameters

@@ -19,16 +19,7 @@ var is_path_defined: bool = false
 # Called when the node enters the scene tree
 func _ready() -> void:
 	print("Geometry node ready!")
-	
-	# Define a test path - replace this with your actual path!
-	# This creates a square path for testing
-	var mall_size = 5
-	define_path([
-		Vector2(-mall_size, -mall_size),
-		Vector2(mall_size, -mall_size),
-		Vector2(mall_size, mall_size),
-		Vector2(-mall_size, mall_size)
-	])
+	# Path will be defined dynamically by mall.gd during procedural generation
 
 # Define the path from a series of xy nodes
 func define_path(nodes: Array) -> void:

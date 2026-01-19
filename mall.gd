@@ -7,6 +7,24 @@ var player
 # Setup state
 var setup_complete: bool = false
 
+# Procedural generation parameters
+var mall_size: int = 10  # Number of segments per side
+var segment_rotation_offset: float = 0.0  # Rotation offset for segments (in degrees)
+var corner_rotation_offset: float = 0.0  # Rotation offset for corners (in degrees)
+
+# Asset references
+var segment_template = null
+var corner_template = null
+
+# Mesh placement data structure
+class MeshPlacement:
+	var type: String  # "corner" or "segment"
+	var position: Vector3
+	
+	func _init(t: String, pos: Vector3):
+		type = t
+		position = pos
+
 func _ready() -> void:
 	print("Mall scene initializing...")
 	
@@ -27,7 +45,8 @@ func _ready() -> void:
 	# Load everything from code for consistent scaling
 	load_mall_scene()
 	load_player_character()
-	load_test_segments()
+	load_asset_templates()
+	generate_procedural_mall()
 	
 	# Start the setup polling
 	setup_scene()
@@ -93,9 +112,9 @@ func load_player_character() -> void:
 	
 	print("Player character loaded")
 
-func load_test_segments() -> void:
-	"""Load test instances of curve and short_segment from mall_assets"""
-	print("Loading test segments...")
+func load_asset_templates() -> void:
+	"""Load the asset templates from mall_assets.blend"""
+	print("Loading asset templates...")
 	
 	# Load the mall_assets scene
 	var mall_assets = load("res://mall_assets.blend")
@@ -108,79 +127,123 @@ func load_test_segments() -> void:
 	
 	print("Assets instance name: ", assets_instance.name)
 	print("Assets instance scale: ", assets_instance.scale)
-	print("Assets instance transform: ", assets_instance.transform)
-	print("Assets instance children count: ", assets_instance.get_child_count())
 	
-	# Debug: print all children
-	for child in assets_instance.get_children():
-		print("  Child: ", child.name, " Type: ", child.get_class(), " Scale: ", child.scale if child is Node3D else "N/A")
-	
-	# Find the original mesh nodes (to copy their transforms)
-	var curve_node = null
-	var short_segment_node = null
-	
-	# Search recursively for the meshes (they might be nested)
+	# Search recursively for the meshes
 	var nodes_to_check = [assets_instance]
-	var scale_factor = 1.0
 	while nodes_to_check.size() > 0:
 		var node = nodes_to_check.pop_back()
 		
 		if node.name.contains("curve") and node is MeshInstance3D:
-			curve_node = node
-			curve_node.scale = curve_node.scale * scale_factor
-			print("Found curve node: ", node.name, " with scale: ", node.scale, " and transform: ", node.transform)
+			corner_template = node.duplicate()
+			print("Found corner template: ", node.name, " with scale: ", corner_template.scale)
 		elif node.name.contains("short_segment") and node is MeshInstance3D:
-			short_segment_node = node
-			short_segment_node.scale = short_segment_node.scale * scale_factor
-			print("Found short_segment node: ", node.name, " with scale: ", node.scale, " and transform: ", node.transform)
+			segment_template = node.duplicate()
+			print("Found segment template: ", node.name, " with scale: ", segment_template.scale)
 		
 		# Add children to check
 		for child in node.get_children():
 			nodes_to_check.append(child)
 	
-	# Create 2 copies of short_segment
-	if short_segment_node:
-		pass
-
-		# var segment1 = short_segment_node.duplicate()
-		# segment1.position = Vector3(0, 0, 0)
-		# add_child(segment1)
-		# print("Added short_segment at (0, 0, 0) with final scale: ", segment1.scale)
-
-		var segment1 = short_segment_node.duplicate()
-		segment1.position = Vector3(31, 0, 32)
-		add_child(segment1)	
-		print("Added short_segment at (1, 0, 0) with final scale: ", segment1.scale)
-		
-		var segment2 = short_segment_node.duplicate()
-		segment2.position = Vector3(33, 0, 32)
-		add_child(segment2)
-		print("Added short_segment at (2, 0, 0) with final scale: ", segment2.scale)
-
-	else:
-		push_error("short_segment mesh not found in mall_assets!")
-	
-	# Create 2 copies of curve
-	if curve_node:
-		pass
-		# var curve1 = curve_node.duplicate()
-		# curve1.position = Vector3(0, 0, 4)
-		# curve1.scale = curve1.scale * scale_factor
-		# add_child(curve1)
-		# print("Added curve at (0, 0, 4) with final scale: ", curve1.scale)
-		
-		# var curve2 = curve_node.duplicate()
-		# curve2.position = Vector3(4, 0, 4)
-		# curve2.scale = curve2.scale * scale_factor
-		# add_child(curve2)
-		# print("Added curve at (4, 0, 4) with final scale: ", curve2.scale)
-	else:
-		push_error("curve mesh not found in mall_assets!")
-	
 	# Clean up the temporary instance
 	assets_instance.queue_free()
 	
-	print("Test segments loaded successfully")
+	if not segment_template:
+		push_error("short_segment mesh not found in mall_assets!")
+	if not corner_template:
+		push_error("curve mesh not found in mall_assets!")
+	
+	print("Asset templates loaded successfully")
+
+func generate_procedural_mall() -> void:
+	"""Generate a procedural mall based on mall_size parameter"""
+	print("Generating procedural mall with size: ", mall_size)
+	
+	if not segment_template or not corner_template:
+		push_error("Asset templates not loaded!")
+		return
+	
+	# Step 1: Generate the simple abstract geometry (4 corners for a rectangle)
+	var side_length = 4 + (mall_size * 2)
+	var half_side = side_length / 2.0
+	
+	var geometry_corners = [
+		Vector2(-half_side, -half_side),  # Bottom-left
+		Vector2(half_side, -half_side),   # Bottom-right
+		Vector2(half_side, half_side),    # Top-right
+		Vector2(-half_side, half_side)    # Top-left
+	]
+	
+	# Update geometry with simple 4-corner path
+	if geometry and geometry.has_method("define_path"):
+		geometry.define_path(geometry_corners)
+		print("Updated geometry path with 4 corners")
+	else:
+		push_error("Geometry node not found or doesn't have define_path method!")
+	
+	# Step 2: Generate detailed mesh placement list
+	var mesh_placements: Array = []
+	
+	# Bottom side (left to right): corner, segments, corner
+	var x = -half_side
+	var z = -half_side
+	mesh_placements.append(MeshPlacement.new("corner", Vector3(x, 0, z)))
+	x += 4  # Corner is 4 wide
+	for i in range(mall_size):
+		mesh_placements.append(MeshPlacement.new("segment", Vector3(x, 0, z)))
+		x += 2  # Segment is 2 wide
+	
+	# Right side (bottom to top): corner, segments, corner
+	x = half_side
+	z = -half_side
+	mesh_placements.append(MeshPlacement.new("corner", Vector3(x, 0, z)))
+	z += 4  # Corner is 4 wide
+	for i in range(mall_size):
+		mesh_placements.append(MeshPlacement.new("segment", Vector3(x, 0, z)))
+		z += 2  # Segment is 2 wide
+	
+	# Top side (right to left): corner, segments, corner
+	x = half_side
+	z = half_side
+	mesh_placements.append(MeshPlacement.new("corner", Vector3(x, 0, z)))
+	x -= 4  # Corner is 4 wide
+	for i in range(mall_size):
+		mesh_placements.append(MeshPlacement.new("segment", Vector3(x, 0, z)))
+		x -= 2  # Segment is 2 wide
+	
+	# Left side (top to bottom): corner, segments (last corner wraps to start)
+	x = -half_side
+	z = half_side
+	mesh_placements.append(MeshPlacement.new("corner", Vector3(x, 0, z)))
+	z -= 4  # Corner is 4 wide
+	for i in range(mall_size):
+		mesh_placements.append(MeshPlacement.new("segment", Vector3(x, 0, z)))
+		z -= 2  # Segment is 2 wide
+	
+	# Step 3: Instantiate meshes with calculated rotations
+	for i in range(mesh_placements.size()):
+		var placement = mesh_placements[i]
+		var next_placement = mesh_placements[(i + 1) % mesh_placements.size()]
+		
+		# Calculate direction to next placement
+		var direction = (next_placement.position - placement.position).normalized()
+		var angle = -atan2(direction.z, direction.x)
+		var angle_degrees = rad_to_deg(angle)
+		
+		# Instantiate the appropriate mesh
+		if placement.type == "corner":
+			var corner = corner_template.duplicate()
+			corner.position = placement.position
+			corner.rotation_degrees.y = corner_rotation_offset + angle_degrees
+			add_child(corner)
+			print("Added corner at ", placement.position, " with rotation ", angle_degrees)
+		elif placement.type == "segment":
+			var segment = segment_template.duplicate()
+			segment.position = placement.position
+			segment.rotation_degrees.y = segment_rotation_offset + angle_degrees
+			add_child(segment)
+			print("Added segment at ", placement.position, " with rotation ", angle_degrees)
+	
+	print("Procedural mall generation complete! Generated ", mesh_placements.size(), " mesh placements")
 
 func setup_scene() -> void:
 	"""Poll until geometry is ready, then initialize player"""
