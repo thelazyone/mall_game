@@ -1,35 +1,53 @@
 extends Node
 
+# Stores the geometry of the mall in its entirety.
+
+# FLOORS: for now the shape of the mall is a square, with each floor having four segments
+# aligned along the axes.
+# There is a certain amount of floors (goal is to have infinite floors, generated as it goes).
+
+# Stairs: each floor has information about stairs, with a handle to each stair it's connected to. 
+# The stairs, on their part, have an index for the bottom and top floor they're connected to as well.
+
+# This way, when a player tries to get on some stairs, the logic can check where they are and if there's
+# any stair available. Then, the geometry logic can inform the game on the position on the stair of the player.
+
 # Stair data structure
 class StairData:
+
 	var segment_index: int  # Which segment (0 to num_segments-1)
 	var position_on_segment: float  # Position along segment
 	var arrival_segment: int  # Arrival segment index
 	var arrival_position: float  # Arrival position on segment
-	var arrival_floor: int  # Which floor it connects to
-	var going_up: bool  # True if going up, False if going down
+
+	var starting_floor: int  # Which floor the stair starts on (bottom end)
+	var ending_floor: int  # Which floor the stair ends on (top end)
+	var direction_forward: bool  # True if stair goes "forward" (right increases progress), False if "backward"
 	
-	func _init(seg: int, pos: float, arr_seg: int, arr_pos: float, arr_floor: int, up: bool):
+	func _init(seg: int, pos: float, arr_seg: int, arr_pos: float, start_floor: int, end_floor: int, dir_fwd: bool):
 		segment_index = seg
 		position_on_segment = pos
 		arrival_segment = arr_seg
 		arrival_position = arr_pos
-		arrival_floor = arr_floor
-		going_up = up
+		starting_floor = start_floor
+		ending_floor = end_floor
+		direction_forward = dir_fwd
 
 # Position class to represent a point along the path
 class PathPosition:
 	var distance: float = 0.0  # Distance along the path (1D position)
 	var floor: int = 0  # Which floor (0-4, with 2 being the starting floor)
 	var on_stairs: bool = false  # Whether currently on stairs
-	var stair_progress: float = 0.0  # Progress on stairs (0.0 to 1.0)
-	var stair_arrival_floor: int = 0  # Which floor the current stair goes to
-	var stair_going_up: bool = true  # Direction of current stair
+	var stair_progress: float = 0.0  # Progress on stairs (0.0 to 1.0, can go negative or >1.0 temporarily)
+	var stair_bottom_floor: int = 0  # Bottom floor of current stair
+	var stair_top_floor: int = 0  # Top floor of current stair
+	var stair_direction_forward: bool = true  # Whether moving right increases progress on this stair
 	
 	func _init(dist: float = 0.0, flr: int = 2):
 		distance = dist
 		floor = flr
-		stair_arrival_floor = flr
+		stair_bottom_floor = flr
+		stair_top_floor = flr
 
 # Path data structure
 var path_nodes: Array = []  # Array of Vector2 positions
@@ -80,7 +98,7 @@ func define_floors(floor_count: int, stair_data: Array) -> void:
 	"""
 	Define floor structure with stairs
 	stair_data is array of dictionaries with: floor, segment_index, position_on_segment, 
-	arrival_segment, arrival_position, arrival_floor, going_up
+	arrival_segment, arrival_position, starting_floor, ending_floor, direction_forward
 	"""
 	num_floors = floor_count
 	floors.clear()
@@ -96,8 +114,9 @@ func define_floors(floor_count: int, stair_data: Array) -> void:
 			stair_dict["position_on_segment"],
 			stair_dict["arrival_segment"],
 			stair_dict["arrival_position"],
-			stair_dict["arrival_floor"],
-			stair_dict["going_up"]
+			stair_dict["starting_floor"],
+			stair_dict["ending_floor"],
+			stair_dict["direction_forward"]
 		)
 		floors[stair_dict["floor"]].append(stair)
 	
@@ -164,13 +183,13 @@ func get_position(position: PathPosition) -> Vector3:
 	# Calculate Y position (floor height)
 	var y_pos: float
 	if position.on_stairs:
-		# Lerp between departure and arrival floor based on stair progress
-		# Simple: always lerp from current floor to arrival floor
-		# position.floor is where you were when you entered the stair
-		# position.stair_arrival_floor is where you'll end up
-		var departure_y = (position.floor - 2) * floor_height
-		var arrival_y = (position.stair_arrival_floor - 2) * floor_height
-		y_pos = lerp(departure_y, arrival_y, position.stair_progress)
+		# Lerp between bottom and top floor based on stair progress
+		# Progress 0.0 = bottom floor, 1.0 = top floor
+		var bottom_y = (position.stair_bottom_floor - 2) * floor_height
+		var top_y = (position.stair_top_floor - 2) * floor_height
+		# Clamp progress for rendering (movement logic can exceed 0-1 temporarily)
+		var clamped_progress = clamp(position.stair_progress, 0.0, 1.0)
+		y_pos = lerp(bottom_y, top_y, clamped_progress)
 	else:
 		# Normal floor height (floor 2 is at y=0)
 		y_pos = (position.floor - 2) * floor_height
@@ -288,9 +307,9 @@ func try_stairs(position: PathPosition) -> bool:
 		
 		if debug_stair_switching:
 			var stair_side_name = ["Bottom", "Right", "Top", "Left"][stair.segment_index] if stair.segment_index < 4 else "Invalid"
-			var direction = "UP" if stair.going_up else "DOWN"
-			print("[try_stairs] Stair ", i, " - Direction: ", direction, " | Side: ", stair.segment_index, " (", stair_side_name, ")")
-			print("[try_stairs]   Entrance pos on segment: ", stair.position_on_segment, " | To floor: ", stair.arrival_floor)
+			print("[try_stairs] Stair ", i, " - Side: ", stair.segment_index, " (", stair_side_name, ")")
+			print("[try_stairs]   Connects floor ", stair.starting_floor, " to floor ", stair.ending_floor)
+			print("[try_stairs]   Entrance pos on segment: ", stair.position_on_segment)
 			print("[try_stairs]   Current segment: ", current_segment, " | Match: ", current_segment == stair.segment_index)
 		
 		# Check if we're on the same segment (side) as this stair
@@ -306,12 +325,22 @@ func try_stairs(position: PathPosition) -> bool:
 			if distance_to_entrance < stair_entrance_tolerance:
 				# Enter stairs!
 				position.on_stairs = true
-				position.stair_progress = 0.0
-				position.stair_arrival_floor = stair.arrival_floor
-				position.stair_going_up = stair.going_up
+				position.stair_bottom_floor = stair.starting_floor
+				position.stair_top_floor = stair.ending_floor
+				position.stair_direction_forward = stair.direction_forward
+				
+				# Set initial progress based on which floor we're entering from
+				if position.floor == stair.starting_floor:
+					position.stair_progress = 0.0  # At bottom, going up
+				elif position.floor == stair.ending_floor:
+					position.stair_progress = 1.0  # At top, going down
+				else:
+					position.stair_progress = 0.5  # Shouldn't happen, but default to middle
+				
 				if debug_stair_switching:
-					var dir = "UP" if stair.going_up else "DOWN"
-					print("[try_stairs]   ✓✓ ENTERED STAIRS (", dir, ") from floor ", position.floor, " to floor ", stair.arrival_floor)
+					var dir_str = "forward" if stair.direction_forward else "backward"
+					print("[try_stairs]   ✓✓ ENTERED STAIRS connecting floor ", stair.starting_floor, " to floor ", stair.ending_floor)
+					print("[try_stairs]   Direction: ", dir_str, " | Starting from floor ", position.floor, " with progress ", position.stair_progress)
 				return true
 			elif debug_stair_switching:
 				print("[try_stairs]   ✗ Too far from entrance")

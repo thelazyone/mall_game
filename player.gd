@@ -120,21 +120,32 @@ func _process(delta: float) -> void:
 		
 		# Update stair progress if on stairs
 		if path_position.on_stairs:
-			# Assuming stair length is ~8 units, update progress
+			# Stair length is ~8 units
 			var stair_length = 8.0
-			path_position.stair_progress += abs(distance_delta) / stair_length
-			path_position.stair_progress = clamp(path_position.stair_progress, 0.0, 1.0)
+			var progress_delta = distance_delta / stair_length
 			
-			print("[Player] Stair progress: ", path_position.stair_progress)
+			# If stair is backward (direction_forward=false), flip the progress delta
+			# This means moving right on a backward stair decreases progress
+			if not path_position.stair_direction_forward:
+				progress_delta = -progress_delta
 			
-			# Automatically exit stairs when reaching the end (slightly before 1.0 for better feel)
-			if path_position.stair_progress >= 0.9:
-				var old_floor = path_position.floor
+			path_position.stair_progress += progress_delta
+			
+			print("[Player] Stair progress: ", path_position.stair_progress, " (dir_fwd: ", path_position.stair_direction_forward, ")")
+			
+			# Check for exits
+			# Exit to bottom floor if progress goes below 0
+			if path_position.stair_progress <= 0.0:
 				path_position.on_stairs = false
-				path_position.floor = path_position.stair_arrival_floor
+				path_position.floor = path_position.stair_bottom_floor
 				path_position.stair_progress = 0.0
-				var direction = "up" if path_position.floor > old_floor else "down"
-				print("[Player] Automatically exited stairs (went ", direction, "), now on floor ", path_position.floor)
+				print("[Player] Exited stairs to bottom floor ", path_position.floor)
+			# Exit to top floor if progress exceeds 1.0
+			elif path_position.stair_progress >= 1.0:
+				path_position.on_stairs = false
+				path_position.floor = path_position.stair_top_floor
+				path_position.stair_progress = 0.0
+				print("[Player] Exited stairs to top floor ", path_position.floor)
 		
 		update_player_transform()
 	

@@ -251,18 +251,22 @@ func capture_stair_positions_from_mesh_generation(num_floors: int, floor_heights
 				arrival_distance -= side_length
 				arrival_side = (arrival_side + 1) % 4
 			
-			# Add UPWARD stair on this floor
+			# Get the direction_forward from the stair_info
+			var dir_forward = stair_info.direction_forward
+			
+			# Add stair entrance on this floor (bottom end)
 			geometry_stairs.append({
 				"floor": floor_idx,
 				"segment_index": side_idx,
 				"position_on_segment": side_accumulated_distance,
 				"arrival_segment": arrival_side,
 				"arrival_position": arrival_distance,
-				"arrival_floor": floor_idx + 1,
-				"going_up": true
+				"starting_floor": floor_idx,
+				"ending_floor": floor_idx + 1,
+				"direction_forward": dir_forward
 			})
 			
-			# Add corresponding DOWNWARD stair on the floor above
+			# Add corresponding stair entrance on the floor above (top end)
 			if floor_idx + 1 < num_floors:
 				geometry_stairs.append({
 					"floor": floor_idx + 1,
@@ -270,8 +274,9 @@ func capture_stair_positions_from_mesh_generation(num_floors: int, floor_heights
 					"position_on_segment": arrival_distance,
 					"arrival_segment": side_idx,
 					"arrival_position": side_accumulated_distance,
-					"arrival_floor": floor_idx,
-					"going_up": false
+					"starting_floor": floor_idx,
+					"ending_floor": floor_idx + 1,
+					"direction_forward": dir_forward
 				})
 	
 	return geometry_stairs
@@ -435,10 +440,11 @@ func generate_procedural_mall() -> void:
 		for i in range(geometry_stair_data.size()):
 			var gs = geometry_stair_data[i]
 			var side_name = ["Bottom", "Right", "Top", "Left"][gs["segment_index"]]
-			var direction = "UP" if gs["going_up"] else "DOWN"
-			print("Stair ", i, ": Floor ", gs["floor"], " | Direction: ", direction)
+			var dir_str = "Forward" if gs["direction_forward"] else "Backward"
+			print("Stair entrance ", i, ": On floor ", gs["floor"], " | Direction: ", dir_str)
 			print("  Side: ", side_name, " (", gs["segment_index"], ") | Pos: ", gs["position_on_segment"])
-			print("  -> Arrival floor: ", gs["arrival_floor"], " | Side: ", ["Bottom", "Right", "Top", "Left"][gs["arrival_segment"]], 
+			print("  Connects: Floor ", gs["starting_floor"], " <-> Floor ", gs["ending_floor"])
+			print("  Other end: Side ", ["Bottom", "Right", "Top", "Left"][gs["arrival_segment"]], 
 				  " (", gs["arrival_segment"], ") | Pos: ", gs["arrival_position"])
 		print("=================================================\n")
 	
