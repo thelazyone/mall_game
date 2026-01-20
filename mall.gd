@@ -23,7 +23,7 @@ var loaded_assets: Dictionary = {}
 # Stair data structure
 class StairInfo:
 	var floor: int  # Which floor this stair starts on
-	var side: int   # Which side (0=bottom, 1=right, 2=top, 3=left)
+	var side: int   # Which side (0=bottomm, 1=right, 2=top, 3=left)
 	var segment_pos: int  # Position within that side (in segments)
 	var direction_forward: bool  # True = forward along path, False = backward
 	
@@ -177,6 +177,105 @@ func get_asset(asset_name: String) -> MeshInstance3D:
 		push_error("Asset '%s' not found! Available assets: %s" % [asset_name, loaded_assets.keys()])
 		return null
 
+func capture_stair_positions_from_mesh_generation(num_floors: int, floor_heights: Array, 
+												   departure_stairs_lookup: Dictionary,
+												   half_side: float) -> Array:
+	"""Capture actual stair positions during mesh generation for geometry"""
+	var geometry_stairs = []
+	
+	for floor_idx in range(num_floors):
+		var floor_y = floor_heights[floor_idx]
+		var departure_stairs = departure_stairs_lookup[floor_idx]
+		
+		# We'll capture positions for each side
+		for side_idx in range(4):
+			if not departure_stairs.has(side_idx):
+				continue
+			
+			var stair_info = departure_stairs[side_idx]
+			var departure_segment_pos = stair_info.segment_pos
+			
+			# Calculate the actual world position where the stair mesh is placed
+			var stair_world_pos = Vector3.ZERO
+			var side_accumulated_distance = 0.0  # Distance from start of this path segment
+			
+			# Calculate based on which side
+			if side_idx == 0:  # Bottom (left to right)
+				var x = -half_side + 4.0  # After corner
+				var i = 0
+				while i <= departure_segment_pos:
+					if i == departure_segment_pos:
+						stair_world_pos = Vector3(x, floor_y, -half_side)
+						side_accumulated_distance = x - (-half_side + 4.0)
+						break
+					x += 2.0
+					i += 1
+			elif side_idx == 1:  # Right (bottom to top)
+				var z = -half_side + 4.0
+				var i = 0
+				while i <= departure_segment_pos:
+					if i == departure_segment_pos:
+						stair_world_pos = Vector3(half_side, floor_y, z)
+						side_accumulated_distance = z - (-half_side + 4.0)
+						break
+					z += 2.0
+					i += 1
+			elif side_idx == 2:  # Top (right to left)
+				var x = half_side - 4.0
+				var i = 0
+				while i <= departure_segment_pos:
+					if i == departure_segment_pos:
+						stair_world_pos = Vector3(x, floor_y, half_side)
+						side_accumulated_distance = (half_side - 4.0) - x
+						break
+					x -= 2.0
+					i += 1
+			elif side_idx == 3:  # Left (top to bottom)
+				var z = half_side - 4.0
+				var i = 0
+				while i <= departure_segment_pos:
+					if i == departure_segment_pos:
+						stair_world_pos = Vector3(-half_side, floor_y, z)
+						side_accumulated_distance = (half_side - 4.0) - z
+						break
+					z -= 2.0
+					i += 1
+			
+			# Arrival is 8 units ahead in the path direction
+			var arrival_side = side_idx
+			var arrival_distance = side_accumulated_distance + 8.0
+			var side_length = (mall_size * 2.0)  # Total length of segments on this side
+			
+			# Check if arrival wraps to next side
+			if arrival_distance >= side_length:
+				arrival_distance -= side_length
+				arrival_side = (arrival_side + 1) % 4
+			
+			# Add UPWARD stair on this floor
+			geometry_stairs.append({
+				"floor": floor_idx,
+				"segment_index": side_idx,
+				"position_on_segment": side_accumulated_distance,
+				"arrival_segment": arrival_side,
+				"arrival_position": arrival_distance,
+				"arrival_floor": floor_idx + 1,
+				"going_up": true
+			})
+			
+			# Add corresponding DOWNWARD stair on the floor above
+			if floor_idx + 1 < num_floors:
+				geometry_stairs.append({
+					"floor": floor_idx + 1,
+					"segment_index": arrival_side,
+					"position_on_segment": arrival_distance,
+					"arrival_segment": side_idx,
+					"arrival_position": side_accumulated_distance,
+					"arrival_floor": floor_idx,
+					"going_up": false
+				})
+	
+	return geometry_stairs
+
 func generate_stair_data(num_floors: int) -> Array:
 	"""Generate all stair data for the mall structure"""
 	var all_stairs = []  # Array of StairInfo objects
@@ -325,6 +424,27 @@ func generate_procedural_mall() -> void:
 		var arrival_floor = stair.floor + 1
 		if arrival_floor < num_floors:
 			arrival_stairs_lookup[arrival_floor][stair.side] = stair
+	
+	# Capture actual stair positions for geometry
+	var geometry_stair_data = capture_stair_positions_from_mesh_generation(
+		num_floors, floor_heights, departure_stairs_lookup, half_side)
+	
+	# Debug: print converted geometry stair data
+	if debug_stairs:
+		print("\n========== CONVERTED GEOMETRY STAIR DATA ==========")
+		for i in range(geometry_stair_data.size()):
+			var gs = geometry_stair_data[i]
+			var side_name = ["Bottom", "Right", "Top", "Left"][gs["segment_index"]]
+			var direction = "UP" if gs["going_up"] else "DOWN"
+			print("Stair ", i, ": Floor ", gs["floor"], " | Direction: ", direction)
+			print("  Side: ", side_name, " (", gs["segment_index"], ") | Pos: ", gs["position_on_segment"])
+			print("  -> Arrival floor: ", gs["arrival_floor"], " | Side: ", ["Bottom", "Right", "Top", "Left"][gs["arrival_segment"]], 
+				  " (", gs["arrival_segment"], ") | Pos: ", gs["arrival_position"])
+		print("=================================================\n")
+	
+	if geometry and geometry.has_method("define_floors"):
+		geometry.define_floors(num_floors, geometry_stair_data)
+		print("Geometry floors defined with ", geometry_stair_data.size(), " stairs")
 	
 	# Step 4: Generate mesh placements for each floor
 	for floor_idx in range(num_floors):
