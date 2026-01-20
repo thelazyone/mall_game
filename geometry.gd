@@ -165,10 +165,11 @@ func get_position(position: PathPosition) -> Vector3:
 	var y_pos: float
 	if position.on_stairs:
 		# Lerp between departure and arrival floor based on stair progress
-		var departure_floor = position.floor if position.stair_going_up else position.stair_arrival_floor
-		var arrival_floor = position.stair_arrival_floor if position.stair_going_up else position.floor
-		var departure_y = (departure_floor - 2) * floor_height
-		var arrival_y = (arrival_floor - 2) * floor_height
+		# Simple: always lerp from current floor to arrival floor
+		# position.floor is where you were when you entered the stair
+		# position.stair_arrival_floor is where you'll end up
+		var departure_y = (position.floor - 2) * floor_height
+		var arrival_y = (position.stair_arrival_floor - 2) * floor_height
 		y_pos = lerp(departure_y, arrival_y, position.stair_progress)
 	else:
 		# Normal floor height (floor 2 is at y=0)
